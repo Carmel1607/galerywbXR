@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Galerie d'Art Virtuelle | Expérience Immersive</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <script src="https://unpkg.com/aframe-environment-component@1.3.3/dist/aframe-environment-component.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/donmccurdy/aframe-extras@v6.1.1/dist/aframe-extras.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.3/howler.min.js"></script>
+    
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+      }
+      .overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: rgba(0, 0, 0, 0.7);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        color: white;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        opacity: 1;
+        transition: opacity 0.5s;
+      }
+      .overlay h1 {
+        font-size: 3em;
+        margin-bottom: 0.5em;
+        font-weight: 300;
+      }
+      .overlay p {
+        font-size: 1.2em;
+        max-width: 80%;
+        text-align: center;
+        margin-bottom: 2em;
+      }
+      .start-button {
+        padding: 12px 30px;
+        background: linear-gradient(135deg, #6e8efb, #a777e3);
+        border: none;
+        border-radius: 50px;
+        color: white;
+        font-size: 1.2em;
+        cursor: pointer;
+        transition: transform 0.2s, box-shadow 0.2s;
+      }
+      .start-button:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 7px 20px rgba(0, 0, 0, 0.3);
+      }
+      .instructions {
+        position: fixed;
+        bottom: 20px;
+        left: 20px;
+        color: white;
+        background-color: rgba(0, 0, 0, 0.5);
+        padding: 10px 15px;
+        border-radius: 5px;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        z-index: 100;
+        pointer-events: none;
+      }
+      .loading {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: #000;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 2000;
+        color: white;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      }
+      .spinner {
+        width: 50px;
+        height: 50px;
+        border: 5px solid rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        border-top-color: #fff;
+        animation: spin 1s ease-in-out infinite;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+    </style>
+    
+    <script>
+      // Gestion des interactions et fonctionnalités avancées
+      AFRAME.registerComponent('artwork-interaction', {
+  schema: {
+    title: {type: 'string', default: 'Sans titre'},
+    artist: {type: 'string', default: 'Artiste inconnu'},
+    year: {type: 'string', default: 'Date inconnue'},
+    description: {type: 'string', default: 'Aucune description disponible.'},
+    audioSrc: {type: 'string'}
+  },
+  
+  init: function() {
+    var el = this.el;
+    var data = this.data;
+    var camera = document.querySelector('#camera');
+    var scene = document.querySelector('a-scene');
+    
+    // Création de l'interface de zoom/modal avec fond noir complet
+    this.modalEl = document.createElement('a-entity');
+    this.modalEl.setAttribute('id', 'artwork-modal');
+    this.modalEl.setAttribute('visible', false);
+    
+    // Fond complètement noir qui occupe tout le champ de vision
+    var bgPanel = document.createElement('a-plane');
+    bgPanel.setAttribute('color', '#000');
+    bgPanel.setAttribute('opacity', '1'); // 100% opaque
+    bgPanel.setAttribute('width', '20'); // Plus grand pour couvrir tout
+    bgPanel.setAttribute('height', '15'); // Plus grand pour couvrir tout
+    bgPanel.setAttribute('position', '0 0 -0.1');
+    this.modalEl.appendChild(bgPanel);
+    
+    // Image agrandie (plus grande pour un vrai zoom)
+    var artwork = document.createElement('a-image');
+    artwork.setAttribute('src', el.getAttribute('src'));
+    artwork.setAttribute('width', '10'); // Beaucoup plus grand qu'avant
+    artwork.setAttribute('height', '8'); // Beaucoup plus grand qu'avant
+    artwork.setAttribute('position', '0 0.25 0');
+    this.modalEl.appendChild(artwork);
+    
+    // Texte d'information
+    var textEl = document.createElement('a-entity');
+    textEl.setAttribute('text', {
+      value: data.title + '\n' + data.artist + ', ' + data.year + '\n\n' + data.description,
+      color: 'white',
+      align: 'center',
+      width: 6
+    });
+    textEl.setAttribute('position', '0 -4.5 0'); // Plus bas pour s'adapter à la taille
+    this.modalEl.appendChild(textEl);
+    
+    // Bouton de fermeture plus visible
+    var closeBtn = document.createElement('a-entity');
+    closeBtn.setAttribute('geometry', {
+      primitive: 'plane',
+      width: 0.8,
+      height: 0.8
+    });
+    closeBtn.setAttribute('material', {
+      color: '#ff5555',
+      opacity: 0.9
+    });
+    closeBtn.setAttribute('text', {
+      value: 'X',
+      color: 'white',
+      align: 'center',
+      width: 4
+    });
+    closeBtn.setAttribute('position', '4.9 4 0');
+    closeBtn.setAttribute('class', 'clickable');
+    closeBtn.addEventListener('click', this.closeModal.bind(this));
+    this.modalEl.appendChild(closeBtn);
+    
+    scene.appendChild(this.modalEl);
+    
+    // Initialisation audio
+    if (data.audioSrc) {
+      this.audio = new Howl({
+        src: [data.audioSrc],
+        html5: true
+      });
+    }
+    
+    // Ajout effet de survol
+    el.addEventListener('mouseenter', function() {
+      el.setAttribute('scale', '1.05 1.05 1.05');
+      el.setAttribute('animation', {
+        property: 'components.material.material.color',
+        type: 'color',
+        to: '#fff',
+        dur: 300
+      });
+    });
+    
+    el.addEventListener('mouseleave', function() {
+      el.setAttribute('scale', '1 1 1');
+      el.setAttribute('animation', {
+        property: 'components.material.material.color',
+        type: 'color',
+        to: '#b8b8b8',
+        dur: 300
+      });
+    });
+    
+    // Ouverture du modal au clic
+    el.addEventListener('click', this.openModal.bind(this));
+  },
+  
+  openModal: function() {
+    // Sauvegarder position/rotation actuelle
+    var camera = document.querySelector('#camera');
+    this.originalPosition = camera.getAttribute('position').clone();
+    this.originalRotation = camera.getAttribute('rotation').clone();
+    
+    // Positionner modal directement devant caméra
+    var cameraDirection = new THREE.Vector3(0, 0, -1);
+    cameraDirection.applyQuaternion(camera.object3D.quaternion);
+    var modalPosition = new THREE.Vector3().copy(camera.object3D.position).add(
+      cameraDirection.multiplyScalar(3) // Plus proche pour sensation d'immersion
+    );
+    
+    this.modalEl.setAttribute('position', modalPosition);
+    this.modalEl.setAttribute('rotation', camera.getAttribute('rotation'));
+    this.modalEl.setAttribute('visible', true);
+    
+    // Animation de zoom
+    camera.setAttribute('animation', {
+      property: 'position',
+      easing: 'easeInOutSine',
+      dur: 800,
+      to: modalPosition.x + ' ' + modalPosition.y + ' ' + (modalPosition.z + 0.5)
+    });
+    
+    // Lire audio
+    if (this.audio) {
+      this.audio.play();
+    }
+    
+    // Désactiver contrôles pendant zoom
+    document.querySelector('#camera').setAttribute('look-controls', 'enabled', false);
+    document.querySelector('#player').setAttribute('movement-controls', 'enabled', false);
+    
+    // Cacher le reste de la galerie (option renforcée)
+    var allArtworks = document.querySelectorAll('.frame, .clickable');
+    allArtworks.forEach(function(artwork) {
+      if (artwork !== this.el) {
+        artwork.setAttribute('visible', false);
+      }
+    }.bind(this));
+  },
+  
+  closeModal: function() {
+    this.modalEl.setAttribute('visible', false);
+    
+    // Animation de retour
+    var camera = document.querySelector('#camera');
+    camera.setAttribute('animation', {
+      property: 'position',
+      easing: 'easeInOutSine',
+      dur: 800,
+      to: this.originalPosition.x + ' ' + this.originalPosition.y + ' ' + this.originalPosition.z
+    });
+    
+    // Réactiver contrôles après animation
+    setTimeout(function() {
+      document.querySelector('#camera').setAttribute('look-controls', 'enabled', true);
+      document.querySelector('#player').setAttribute('movement-controls', 'enabled', true);
+      
+      // Rendre à nouveau visible le reste de la galerie
+      var allArtworks = document.querySelectorAll('.frame, .clickable');
+      allArtworks.forEach(function(artwork) {
+        artwork.setAttribute('visible', true);
+      });
+    }, 800);
+    
+    // Arrêter audio
+    if (this.audio && this.audio.playing()) {
+      this.audio.stop();
+    }
+  }
+});
+      
+      
+      // Gestionnaire de chargement des ressources
+      window.addEventListener('load', function() {
+        var scene = document.querySelector('a-scene');
+        var loadingEl = document.querySelector('.loading');
+        
+        if (scene.hasLoaded) {
+          loadingEl.style.display = 'none';
+        } else {
+          scene.addEventListener('loaded', function() {
+            loadingEl.style.display = 'none';
+          });
+        }
+        
+        document.getElementById('start-btn').addEventListener('click', function() {
+          document.querySelector('.overlay').style.opacity = '0';
+          setTimeout(function() {
+            document.querySelector('.overlay').style.display = 'none';
+          }, 500);
+        });
+      });
+    </script>
+  </head>
+  
+  <body>
+    <!-- Écran de chargement -->
+    <div class="loading">
+      <div class="spinner"></div>
+    </div>
+    
+    <!-- Écran de bienvenue -->
+    <div class="overlay">
+      <h1>Bienvenue dans la Galerie d'Art Virtuelle</h1>
+      <p>Explorez notre collection d'œuvres d'art dans un espace immersif. Naviguez librement, approchez-vous des œuvres et cliquez dessus pour en découvrir plus et entendre leurs descriptions.</p>
+      <button id="start-btn" class="start-button">Commencer l'expérience</button>
+    </div>
+    
+    <!-- Instructions sur l'interface -->
+    <div class="instructions">
+      <p>Utilisez ZQSD/WASD pour vous déplacer | Cliquez sur une œuvre pour zoomer | ESC pour revenir</p>
+    </div>
+    
+    <a-scene loading-screen="enabled: false">
+      <!-- Assets préchargées -->
+      <a-assets>
+        <!-- Textures de haute qualité -->
+        <img id="floor-texture" alt="floor-texture" src="https://cdn.glitch.global/29e07830-2317-4c15-a044-135e73c7f814/marble-floor.jpg?v=1643783747743">
+        <img id="wall-texture" alt="wall-texture" src="https://cdn.glitch.global/29e07830-2317-4c15-a044-135e73c7f814/gallery-wall.jpg?v=1643783748584">
+        <img id="ceiling-texture" alt="ceiling-texture" src="https://cdn.glitch.global/29e07830-2317-4c15-a044-135e73c7f814/ceiling-texture.jpg?v=1643783746372">
+        <img id="frame-texture" alt="frame-texture" src="https://cdn.glitch.global/29e07830-2317-4c15-a044-135e73c7f814/frame-texture.jpg?v=1643783747097">
+        
+        <!-- Images d'œuvres d'art de qualité muséale -->
+        <img id="artwork1" alt="" src="assets/images/1.jpg">
+        <img id="artwork2" alt="" src="assets/images/2.jpg">
+        <img id="artwork3" alt="" src="assets/images/3.jpg">
+        <img id="artwork4" alt="" src="assets/images/4.jpg">
+        <img id="artwork5"alt=""  src="assets/images/5.jpg">
+        <img id="artwork6" alt="" src="assets/images/6.jpg">
+        <img id="artwork7" alt="" src="assets/images/7.jpg">
+        <img id="artwork8"alt=""  src="assets/images/8.jpg">
+        <img id="artwork9" alt="" src="assets/images/9.jpg">
+        <img id="artwork10" alt="" src="assets/images/10.jpg">
+        <img id="artwork11" alt="" src="assets/images/11.jpg">
+        <img id="artwork12" alt="" src="assets/images/12.jpg">
+        
+        <!-- Fichiers audio pour les descriptions -->
+        <audio id="audio1" src="assets/audio/1.aac" preload="auto"></audio>
+        <audio id="audio2" src="assets/audio/2.aac" preload="auto"></audio>
+        <audio id="audio3" src="assets/audio/3.aac" preload="auto"></audio>
+        <audio id="audio4" src="assets/audio/4.aac" preload="auto"></audio>
+        <audio id="audio5" src="assets/audio/5.aac" preload="auto"></audio>
+        <audio id="audio6" src="assets/audio/6.aac" preload="auto"></audio>
+        <audio id="audio7" src="assets/audio/7.aac" preload="auto"></audio>
+        <audio id="audio8" src="assets/audio/8.aac" preload="auto"></audio>
+        <audio id="audio9" src="assets/audio/9.aac" preload="auto"></audio>
+        <audio id="audio10" src="assets/audio/10.aac" preload="auto"></audio>
+        <audio id="audio11" src="assets/audio/11.aac" preload="auto"></audio>
+        <audio id="audio12" src="assets/audio/12.aac" preload="auto"></audio>
+        
+        <!-- Sons d'ambiance -->
+        <audio id="ambient-sound" src="https://cdn.glitch.global/29e07830-2317-4c15-a044-135e73c7f814/museum-ambience.mp3?v=1643783746372" preload="auto" loop></audio>
+      </a-assets>
+      
+      <!-- Système de caméra amélioré -->
+      <a-entity id="player" movement-controls="speed: 0.15; camera: #camera; constrainToNavMesh: false">
+        <a-entity id="camera" camera position="0 1.6 0" look-controls="pointerLockEnabled: true">
+          <a-entity cursor="rayOrigin: mouse; fuse: false"
+                   raycaster="objects: .clickable"
+                   position="0 0 -1"
+                   geometry="primitive: ring; radiusInner: 0.01; radiusOuter: 0.015"
+                   material="color: #ffffff; shader: flat; opacity: 0.8">
+          </a-entity>
+        </a-entity>
+      </a-entity>
+      
+      <!-- Ambiance sonore -->
+      <a-entity sound="src: #ambient-sound; autoplay: true; loop: true; volume: 0.3"></a-entity>
+      
+      
+      <!-- Éclairage sophistiqué -->
+      <a-entity light="type: ambient; color: #bbb; intensity: 0.5"></a-entity>
+      <a-entity light="type: directional; color: #fff; intensity: 0.7; castShadow: true" position="-1 4 3"></a-entity>
+      <a-entity light="type: spot; color: #fff; intensity: 0.5; angle: 45; penumbra: 0.3; castShadow: true" position="1 4 -3" rotation="-45 0 0"></a-entity>
+      
+      <!-- Structure de la galerie -->
+      <a-entity environment="preset: default; ground: flat; groundColor: #222; groundColor2: #333; dressing: none; skyType: gradient; skyColor: #1a1a1a; horizonColor: #333"></a-entity>
+      
+      <!-- Sol avec texture réaliste de marbre -->
+      <a-plane position="0 0 0" rotation="-90 0 0" width="30" height="30" material="src: #floor-texture; repeat: 15 15; normalMap: #floor-normal; metalness: 0.2; roughness: 0.1"></a-plane>
+      
+      <!-- Murs avec texture sophistiquée et finition moderne -->
+      <a-entity position="0 3 0">
+        <!-- Mur avant -->
+        <a-box position="0 0 -10" width="30" height="6" depth="0.1" material="src: #wall-texture; repeat: 8 2; roughness: 0.7"></a-box>
+        <!-- Mur arrière -->
+        <a-box position="0 0 10" width="30" height="6" depth="0.1" material="src: #wall-texture; repeat: 8 2; roughness: 0.7"></a-box>
+        <!-- Mur gauche -->
+        <a-box position="-15 0 0" width="0.1" height="6" depth="20" material="src: #wall-texture; repeat: 5 2; roughness: 0.7"></a-box>
+        <!-- Mur droit -->
+        <a-box position="15 0 0" width="0.1" height="6" depth="20" material="src: #wall-texture; repeat: 5 2; roughness: 0.7"></a-box>
+      </a-entity>
+      
+      <!-- Plafond avec éclairage intégré et texture élégante -->
+      <a-box position="0 6 0" width="30" height="0.1" depth="20" material="src: #ceiling-texture; repeat: 15 10"></a-box>
+      
+      <!-- Système d'éclairage de spots orientés vers les œuvres -->
+      <a-entity position="-7 5.9 -8">
+        <a-entity light="type: spot; color: #fff; intensity: 0.8; angle: 40; penumbra: 0.2; castShadow: true" position="0 0 0" rotation="-90 0 0"></a-entity>
+      </a-entity>
+      <a-entity position="0 5.9 -8">
+        <a-entity light="type: spot; color: #fff; intensity: 0.8; angle: 40; penumbra: 0.2; castShadow: true" position="0 0 0" rotation="-90 0 0"></a-entity>
+      </a-entity>
+      <a-entity position="7 5.9 -8">
+        <a-entity light="type: spot; color: #fff; intensity: 0.8; angle: 40; penumbra: 0.2; castShadow: true" position="0 0 0" rotation="-90 0 0"></a-entity>
+      </a-entity>
+      
+      <!-- Œuvres d'art sur le mur avant avec cadres élégants, positionnées avec précision -->
+      <a-entity position="-7 2 -9.9" rotation="0 0 0">
+        <a-box class="frame" position="0 0 -0.05" width="3.2" height="2.7" depth="0.1" material="src: #frame-texture; color: #45322e; roughness: 0.6"></a-box>
+        <a-image id="painting1" class="clickable" src="#artwork1" position="0 0 0" width="2.8" height="2.3"
+                artwork-interaction="title: La Méditation; artist: Jean Dubuffet; year: 1954; description: Une œuvre expressive qui explore les thèmes de l'introspection et de la conscience humaine à travers un style brut caractéristique de l'artiste.; audioSrc: #audio1"></a-image>
+      </a-entity>
+      <a-entity position="0 2 -9.9" rotation="0 0 0">
+        <a-box class="frame" position="0 0 -0.05" width="3.2" height="2.7" depth="0.1" material="src: #frame-texture; color: #45322e; roughness: 0.6"></a-box>
+        <a-image id="painting2" class="clickable" src="#artwork2" position="0 0 0" width="2.8" height="2.3"
+                artwork-interaction="title: Composition No. 7; artist: Wassily Kandinsky; year: 1923; description: Une composition abstraite majeure utilisant des formes géométriques et des couleurs vives pour exprimer l'univers émotionnel du peintre.; audioSrc: #audio2"></a-image>
+      </a-entity>
+      <a-entity position="7 2 -9.9" rotation="0 0 0">
+        <a-box class="frame" position="0 0 -0.05" width="3.2" height="2.7" depth="0.1" material="src: #frame-texture; color: #45322e; roughness: 0.6"></a-box>
+        <a-image id="painting3" class="clickable" src="#artwork3" position="0 0 0" width="2.8" height="2.3"
+                artwork-interaction="title: Le Rêve; artist: Pablo Picasso; year: 1932; description: Portrait cubiste représentant Marie-Thérèse Walter, muse et amante de Picasso, dans une posture de rêverie contemplative.; audioSrc: #audio3"></a-image>
+      </a-entity>
+      
+      <!-- Œuvres d'art sur le mur arrière -->
+      <a-entity position="-7 2 9.9" rotation="0 180 0">
+        <a-box class="frame" position="0 0 -0.05" width="3.2" height="2.7" depth="0.1" material="src: #frame-texture; color: #45322e; roughness: 0.6"></a-box>
+        <a-image id="painting4" class="clickable" src="#artwork4" position="0 0 0" width="2.8" height="2.3"
+                artwork-interaction="title: Impression, soleil levant; artist: Claude Monet; year: 1872; description: L'œuvre qui a donné son nom au mouvement impressionniste, représentant le port du Havre au lever du soleil.; audioSrc: #audio4"></a-image>
+      </a-entity>
+      <a-entity position="0 2 9.9" rotation="0 180 0">
+        <a-box class="frame" position="0 0 -0.05" width="3.2" height="2.7" depth="0.1" material="src: #frame-texture; color: #45322e; roughness: 0.6"></a-box>
+        <a-image id="painting5" class="clickable" src="#artwork5" position="0 0 0" width="2.8" height="2.3"
+                artwork-interaction="title: La Nuit étoilée; artist: Vincent van Gogh; year: 1889; description: L'une des œuvres les plus célèbres de Van Gogh, peinte pendant son séjour à l'asile de Saint-Rémy-de-Provence.; audioSrc: #audio5"></a-image>
+      </a-entity>
+      <a-entity position="7 2 9.9" rotation="0 180 0">
+        <a-box class="frame" position="0 0 -0.05" width="3.2" height="2.7" depth="0.1" material="src: #frame-texture; color: #45322e; roughness: 0.6"></a-box>
+        <a-image id="painting6" class="clickable" src="#artwork6" position="0 0 0" width="2.8" height="2.3"
+                artwork-interaction="title: Bal du moulin de la Galette; artist: Auguste Renoir; year: 1876; description: Une scène joyeuse montrant la vie parisienne dans un jardin de danse à Montmartre, symbole de la joie de vivre impressionniste.; audioSrc: #audio6"></a-image>
+      </a-entity>
+      
+      <!-- Œuvres d'art sur le mur gauche -->
+      <a-entity position="-14.9 2 -5" rotation="0 90 0">
+        <a-box class="frame" position="0 0 -0.05" width="3.2" height="2.7" depth="0.1" material="src: #frame-texture; color: #45322e; roughness: 0.6"></a-box>
+        <a-image id="painting7" class="clickable" src="#artwork7" position="0 0 0" width="2.8" height="2.3"
+                artwork-interaction="title: Les Demoiselles d'Avignon; artist: Pablo Picasso; year: 1907; description: Œuvre révolutionnaire qui a ouvert la voie au cubisme, représentant cinq figures féminines dans un style angulaire et décomposé.; audioSrc: #audio7"></a-image>
+      </a-entity>
+      <a-entity position="-14.9 2 0" rotation="0 90 0">
+        <a-box class="frame" position="0 0 -0.05" width="3.2" height="2.7" depth="0.1" material="src: #frame-texture; color: #45322e; roughness: 0.6"></a-box>
+        <a-image id="painting8" class="clickable" src="#artwork8" position="0 0 0" width="2.8" height="2.3"
+                artwork-interaction="title: La Persistance de la mémoire; artist: Salvador Dalí; year: 1931; description: Chef-d'œuvre surréaliste présentant des horloges molles dans un paysage onirique, symbole de la distorsion du temps dans le rêve.; audioSrc: #audio8"></a-image>
+      </a-entity>
+      <a-entity position="-14.9 2 5" rotation="0 90 0">
+        <a-box class="frame" position="0 0 -0.05" width="3.2" height="2.7" depth="0.1" material="src: #frame-texture; color: #45322e; roughness: 0.6"></a-box>
+        <a-image id="painting9" class="clickable" src="#artwork9" position="0 0 0" width="2.8" height="2.3"
+                artwork-interaction="title: Les Nymphéas; artist: Claude Monet; year: 1916; description: Partie des célèbres séries de nénuphars, peinte dans le jardin de Giverny, exploration de la lumière et des réflexions sur l'eau.; audioSrc: #audio9"></a-image>
+      </a-entity>
+      
+      <!-- Œuvres d'art sur le mur droit -->
+      <a-entity position="14.9 2 -5" rotation="0 -90
+
+     
+        <a-box class="frame" position="0 0 -0.05" width="3.2" height="2.7" depth="0.1" material="src: #frame-texture; color: #45322e; roughness: 0.6"></a-box>
+        <a-image id="painting10" class="clickable" src="#artwork10" position="0 0 0" width="2.8" height="2.3"
+                artwork-interaction="title: Le Cri; artist: Edvard Munch; year: 1893; description: Expression emblématique de l'angoisse existentielle moderne, montrant une figure tourmentée sur un pont sous un ciel tourbillonnant.; audioSrc: #audio10"></a-image>
+      </a-entity>
+      <a-entity position="14.9 2 0" rotation="0 -90 0">
+        <a-box class="frame" position="0 0 -0.05" width="3.2" height="2.7" depth="0.1" material="src: #frame-texture; color: #45322e; roughness: 0.6"></a-box>
+        <a-image id="painting11" class="clickable" src="#artwork11" position="0 0 0" width="2.8" height="2.3"
+                artwork-interaction="title: Guernica; artist: Pablo Picasso; year: 1937; description: Œuvre monumentale dénonçant les horreurs du bombardement de Guernica pendant la guerre civile espagnole, dans un style cubiste expressif.; audioSrc: #audio11"></a-image>
+      </a-entity>
+      <a-entity position="14.9 2 5" rotation="0 -90 0">
+        <a-box class="frame" position="0 0 -0.05" width="3.2" height="2.7" depth="0.1" material="src: #frame-texture; color: #45322e; roughness: 0.6"></a-box>
+        <a-image id="painting12" class="clickable" src="#artwork12" position="0 0 0" width="2.8" height="2.3"
+                artwork-interaction="title: La Jeune Fille à la perle; artist: Johannes Vermeer; year: 1665; description: Chef-d'œuvre du maître hollandais, célèbre pour son utilisation subtile de la lumière et sa composition simple mais captivante.; audioSrc: #audio12"></a-image>
+      </a-entity>
+      
+      <!-- Éléments décoratifs et de mise en scène -->
+      <!-- Bancs de musée -->
+      <a-entity position="-5 0.25 -5">
+        <a-box width="2" height="0.5" depth="0.5" material="color: #5e4534; roughness: 0.8"></a-box>
+        <a-box position="0 0.15 0.1" width="1.8" height="0.2" depth="0.7" material="color: #3a2a1d; roughness: 0.9"></a-box>
+      </a-entity>
+      <a-entity position="5 0.25 -5">
+        <a-box width="2" height="0.5" depth="0.5" material="color: #5e4534; roughness: 0.8"></a-box>
+        <a-box position="0 0.15 0.1" width="1.8" height="0.2" depth="0.7" material="color: #3a2a1d; roughness: 0.9"></a-box>
+      </a-entity>
+      <a-entity position="0 0.25 5">
+        <a-box width="2" height="0.5" depth="0.5" material="color: #5e4534; roughness: 0.8"></a-box>
+        <a-box position="0 0.15 0.1" width="1.8" height="0.2" depth="0.7" material="color: #3a2a1d; roughness: 0.9"></a-box>
+      </a-entity>
+      
+      <!-- Piédestaux avec sculptures -->
+      <a-entity position="-10 0 -3">
+        <a-cylinder height="1.2" radius="0.4" material="color: #eaeaea; roughness: 0.2"></a-cylinder>
+        <a-entity position="0 0.75 0" scale="0.5 0.5 0.5">
+          <a-sphere position="0 0.5 0" radius="0.3" material="color: #bfb19e; metalness: 0.3; roughness: 0.6"></a-sphere>
+          <a-cylinder position="0 0 0" height="1" radius="0.1" material="color: #bfb19e; metalness: 0.3; roughness: 0.6"></a-cylinder>
+        </a-entity>
+        <a-text value="Forme abstraite I" position="0 -0.1 0.5" align="center" color="#333" width="2"></a-text>
+      </a-entity>
+      <a-entity position="10 0 -3">
+        <a-cylinder height="1.2" radius="0.4" material="color: #eaeaea; roughness: 0.2"></a-cylinder>
+        <a-entity position="0 0.75 0" scale="0.5 0.5 0.5">
+          <a-torus position="0 0.3 0" radius="0.3" radius-tubular="0.05" material="color: #bfb19e; metalness: 0.3; roughness: 0.6"></a-torus>
+          <a-cylinder position="0 0 0" height="0.6" radius="0.1" material="color: #bfb19e; metalness: 0.3; roughness: 0.6"></a-cylinder>
+        </a-entity>
+        <a-text value="Forme abstraite II" position="0 -0.1 0.5" align="center" color="#333" width="2"></a-text>
+      </a-entity>
+      
+      <!-- Plantes décoratives -->
+      <a-entity position="-13 0 8">
+        <a-cylinder height="0.6" radius="0.4" material="color: #4a3c2f"></a-cylinder>
+        <a-entity position="0 0.4 0">
+          <a-cone position="-0.1 0.5 0.1" height="1" radius-bottom="0.2" radius-top="0" material="color: #447755"></a-cone>
+          <a-cone position="0.1 0.7 -0.1" height="1.2" radius-bottom="0.2" radius-top="0" material="color: #3b6647"></a-cone>
+          <a-cone position="0.05 0.6 0.2" height="0.9" radius-bottom="0.15" radius-top="0" material="color: #4a7a5a"></a-cone>
+        </a-entity>
+      </a-entity>
+      <a-entity position="13 0 8">
+        <a-cylinder height="0.6" radius="0.4" material="color: #4a3c2f"></a-cylinder>
+        <a-entity position="0 0.4 0">
+          <a-cone position="-0.1 0.5 0.1" height="1" radius-bottom="0.2" radius-top="0" material="color: #447755"></a-cone>
+          <a-cone position="0.1 0.7 -0.1" height="1.2" radius-bottom="0.2" radius-top="0" material="color: #3b6647"></a-cone>
+          <a-cone position="0.05 0.6 0.2" height="0.9" radius-bottom="0.15" radius-top="0" material="color: #4a7a5a"></a-cone>
+        </a-entity>
+      </a-entity>
+      
+      <!-- Panneau d'information à l'entrée -->
+      <a-entity position="0 1.5 -9">
+        <a-plane width="3" height="1.5" material="color: #222; opacity: 0.7"></a-plane>
+        <a-text value="EXPOSITION PERMANENTE\nChefs-d'œuvre de l'art moderne et classique" position="0 0 0.01" align="center" color="#fff" width="2.8"></a-text>
+      </a-entity>
+      
+      <!-- Indications de navigation -->
+      <a-entity position="-12 0.1 -8">
+        <a-circle radius="0.5" rotation="-90 0 0" material="color: #555; opacity: 0.7"></a-circle>
+        <a-text value="←" position="0 0.01 0" rotation="-90 0 0" align="center" color="#fff" width="1"></a-text>
+      </a-entity>
+      <a-entity position="12 0.1 -8">
+        <a-circle radius="0.5" rotation="-90 0 0" material="color: #555; opacity: 0.7"></a-circle>
+        <a-text value="→" position="0 0.01 0" rotation="-90 0 0" align="center" color="#fff" width="1"></a-text>
+      </a-entity>
+      <a-entity position="0 0.1 8">
+        <a-circle radius="0.5" rotation="-90 0 0" material="color: #555; opacity: 0.7"></a-circle>
+        <a-text value="↑" position="0 0.01 0" rotation="-90 0 0" align="center" color="#fff" width="1"></a-text>
+      </a-entity>
+      
+      <!-- Système de détection pour interaction améliorée -->
+      <a-entity id="interaction-manager">
+        <script>
+          document.addEventListener('DOMContentLoaded', function() {
+            // Initialisation de l'audio d'ambiance
+            var ambientSound = new Howl({
+              src: ['https://cdn.glitch.global/29e07830-2317-4c15-a044-135e73c7f814/museum-ambience.mp3?v=1643783746372'],
+              autoplay: true,
+              loop: true,
+              volume: 0.3
+            });
+            
+            // Système de gestion des messages d'aide
+            var player = document.querySelector('#player');
+            var camera = document.querySelector('#camera');
+            var helpTimeout;
+            
+            function showHelp() {
+              var helpEl = document.createElement('div');
+              helpEl.setAttribute('id', 'help-popup');
+              helpEl.style.position = 'fixed';
+              helpEl.style.bottom = '70px';
+              helpEl.style.left = '50%';
+              helpEl.style.transform = 'translateX(-50%)';
+              helpEl.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+              helpEl.style.color = 'white';
+              helpEl.style.padding = '10px 20px';
+              helpEl.style.borderRadius = '5px';
+              helpEl.style.fontFamily = 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif';
+              helpEl.style.zIndex = '1000';
+              helpEl.innerHTML = 'Approchez-vous des œuvres et cliquez dessus pour plus d\'informations';
+              document.body.appendChild(helpEl);
+              
+              helpTimeout = setTimeout(function() {
+                document.body.removeChild(helpEl);
+              }, 5000);
+            }
+            
+            // Afficher l'aide au démarrage
+            setTimeout(showHelp, 8000);
+            
+            // Gestion des performances
+            var lastUpdate = 0;
+            var frameRateLimit = 1000 / 60; // 60 FPS
+            
+            function update(timestamp) {
+              if (timestamp - lastUpdate > frameRateLimit) {
+                lastUpdate = timestamp;
+                
+                // Mise à jour logique ici
+              }
+              requestAnimationFrame(update);
+            }
+            
+            requestAnimationFrame(update);
+          });
+        </script>
+      </a-entity>
+      
+      <!-- Gestion des erreurs et de la résilience -->
+      <script>
+        AFRAME.registerComponent('error-handler', {
+          init: function() {
+            var sceneEl = this.el;
+            
+            // Gestion des erreurs de chargement des ressources
+            function handleResourceError(resourceType, resourceUrl) {
+              console.error('Échec de chargement:', resourceType, resourceUrl);
+              
+              // Notification visuelle pour l'utilisateur
+              var errorNotif = document.createElement('div');
+              errorNotif.style.position = 'fixed';
+              errorNotif.style.top = '20px';
+              errorNotif.style.right = '20px';
+              errorNotif.style.backgroundColor = 'rgba(200, 0, 0, 0.8)';
+              errorNotif.style.color = 'white';
+              errorNotif.style.padding = '10px';
+              errorNotif.style.borderRadius = '5px';
+              errorNotif.style.fontFamily = 'sans-serif';
+              errorNotif.style.zIndex = '9999';
+              errorNotif.textContent = 'Une ressource n\'a pas pu être chargée. L\'expérience pourrait être dégradée.';
+              document.body.appendChild(errorNotif);
+              
+              setTimeout(function() {
+                errorNotif.style.opacity = '0';
+                errorNotif.style.transition = 'opacity 0.5s';
+                setTimeout(function() {
+                  document.body.removeChild(errorNotif);
+                }, 500);
+              }, 5000);
+            }
+            
+            // Écouter les erreurs de chargement
+            sceneEl.addEventListener('asset-error', function(evt) {
+              handleResourceError('asset', evt.detail.src);
+            });
+            
+            // Gestion globale des erreurs JavaScript
+            window.addEventListener('error', function(evt) {
+              console.error('Erreur JavaScript:', evt.message);
+            });
+          }
+        });
+        
+        // Ajouter le gestionnaire d'erreurs à la scène
+        document.querySelector('a-scene').setAttribute('error-handler', '');
+      </script>
+    </a-scene>
+  </body>
+</html>
